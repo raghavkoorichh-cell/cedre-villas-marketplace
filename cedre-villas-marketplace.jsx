@@ -5,7 +5,7 @@ import { useState, useEffect, useRef } from "react";
 // Replace these 3 values with your real ones (Step 3)
 // ══════════════════════════════════════════════════════════════
 const SHEETS_CONFIG = {
-  SHEET_ID:   https://docs.google.com/spreadsheets/d/12yYB25WJ5l0_ML8PC3dqXPXQpxRfOX1kQcdIzlN06ZY/edit?gid=1023132841#gid=1023132841
+  SHEET_ID:   12yYB25WJ5l0_ML8PC3dqXPXQpxRfOX1kQcdIzlN06ZY
   API_KEY:    AIzaSyCBK8Uds1DhrclEodyOjMSKhYI4YXH9ydI
   SHEET_NAME: "📋 Listings",
 };
