@@ -5,8 +5,8 @@ import { useState, useEffect, useRef } from "react";
 // Replace these 3 values with your real ones (Step 3)
 // ══════════════════════════════════════════════════════════════
 const SHEETS_CONFIG = {
-  SHEET_ID:   import.meta.env.VITE_SHEET_ID,
-  API_KEY:    import.meta.env.VITE_API_KEY,
+  SHEET_ID:   "YOUR_GOOGLE_SHEET_ID",        // from Sheet URL
+  API_KEY:    "YOUR_GOOGLE_SHEETS_API_KEY",  // from Google Cloud
   SHEET_NAME: "📋 Listings",
 };
 
@@ -41,6 +41,20 @@ const SAMPLE = [
   { id:"CVL-0004",title:"IKEA Kallax Shelf",price:220,desc:"White, 4x4. Self-collection only.",cat:"Furniture",status:"reserved",seller:"Omar F.",phone:"+971502345678",time:"3 hr ago",emoji:"🪑",grad:"from-amber-50 to-amber-100" },
   { id:"CVL-0005",title:"Montessori Activity Set",price:95,desc:"Ages 2–4. Complete wooden set from Germany.",cat:"Kids",status:"available",seller:"Nadia T.",phone:"+971508765432",time:"5 hr ago",emoji:"🧩",grad:"from-green-100 to-emerald-200" },
 ];
+
+// ── FEE CALCULATION ──
+function calculateFee(price) {
+  if (price < 50) {
+    return { buyerFee:3, sellerFee:3, totalEarned:6, tier:"Under AED 50" };
+  } else if (price <= 100) {
+    return { buyerFee:5, sellerFee:5, totalEarned:10, tier:"AED 50–100" };
+  } else if (price <= 200) {
+    return { buyerFee:7, sellerFee:7, totalEarned:14, tier:"AED 100–200" };
+  } else {
+    const fee = Math.max(7, parseFloat((price * 0.025).toFixed(2)));
+    return { buyerFee:fee, sellerFee:fee, totalEarned:fee*2, tier:"Above AED 200" };
+  }
+}
 
 // ── GOOGLE SHEETS FETCH ──
 async function fetchListings() {
@@ -319,11 +333,19 @@ export default function App() {
                     <p className="text-xs text-indigo-700">Your money is held safely. Released to seller <strong>only after you confirm receipt.</strong></p>
                     <EscrowBar step="payment_pending" />
                   </div>
-                  <div className="rounded-2xl p-4" style={{ background:"#f9fafb" }}>
-                    <div className="flex justify-between text-sm text-gray-600"><span>Item price</span><span>AED {activeItem.price}</span></div>
-                    <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Platform fee (2%)</span><span>AED {Math.round(activeItem.price*0.02)}</span></div>
-                    <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900"><span>Total to escrow</span><span>AED {activeItem.price+Math.round(activeItem.price*0.02)}</span></div>
-                  </div>
+                  {(() => {
+                    const f = calculateFee(activeItem.price);
+                    const total = activeItem.price + f.buyerFee;
+                    return (
+                      <div className="rounded-2xl p-4" style={{ background:"#f9fafb" }}>
+                        <div className="flex justify-between text-sm text-gray-600"><span>Item price</span><span>AED {activeItem.price}</span></div>
+                        <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Buyer platform fee</span><span>AED {f.buyerFee}</span></div>
+                        <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Seller platform fee</span><span>AED {f.sellerFee} (deducted from seller)</span></div>
+                        <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900"><span>You pay (into escrow)</span><span>AED {total}</span></div>
+                        <p className="text-xs text-gray-400 mt-2 text-center">Seller receives AED {activeItem.price - f.sellerFee} after handover</p>
+                      </div>
+                    );
+                  })()}
                   <button onClick={confirmPay} className="w-full mt-4 py-4 rounded-2xl text-white font-bold shadow" style={{ background:ES }}>🔒 Pay into escrow</button>
                   <button onClick={confirmPay} className="w-full mt-2 py-3 rounded-2xl text-white font-semibold text-sm" style={{ background:G }}>🍎 Apple Pay</button>
                   <button onClick={()=>setModal(null)} className="w-full mt-2 py-3 rounded-2xl text-gray-500 font-semibold text-sm">Cancel</button>
