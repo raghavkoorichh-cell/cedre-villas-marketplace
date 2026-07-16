@@ -5,8 +5,8 @@ import { useState, useEffect, useRef } from "react";
 // Replace these 3 values with your real ones (Step 3)
 // ══════════════════════════════════════════════════════════════
 const SHEETS_CONFIG = {
-  SHEET_ID:   "12yYB25WJ5l0_ML8PC3dqXPXQpxRfOX1kQcdIzlN06ZY"
-  API_KEY:    "AIzaSyCBK8Uds1DhrclEodyOjMSKhYI4YXH9ydI"
+  SHEET_ID:   import.meta.env.VITE_SHEET_ID,
+  API_KEY:    import.meta.env.VITE_API_KEY,
   SHEET_NAME: "📋 Listings",
 };
 
