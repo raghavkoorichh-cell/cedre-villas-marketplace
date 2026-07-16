@@ -389,7 +389,7 @@ export default function App() {
             <div className="px-5 pt-10 pb-6">
               <p className="text-xs font-semibold uppercase tracking-widest" style={{ color:"#9FE1CB" }}>Community Marketplace</p>
               <p className="text-white text-2xl font-bold mt-1">Cedre Villas</p>
-              <p className="text-sm mt-0.5" style={{ color:"#9FE1CB" }}>Dubai Hills Estate</p>
+              <p className="text-sm mt-0.5" style={{ color:"#9FE1CB" }}>Dubai Silicon Oasis</p>
               {loading && <p className="text-xs mt-1" style={{ color:"#9FE1CB" }}>Loading listings...</p>}
             </div>
             <div className="mx-3 rounded-3xl overflow-hidden bg-white">
@@ -447,7 +447,7 @@ export default function App() {
                 <button onClick={()=>setScreen("catalogue")} className="w-full mt-3 py-2.5 rounded-xl text-sm font-semibold text-center" style={{ color:GD,background:"#f0fdf4" }}>View all listings →</button>
               </div>
             </div>
-            <p className="text-center text-xs mt-4 pb-6 opacity-50" style={{ color:"#9FE1CB" }}>Cedre Villas · Dubai Hills Estate · {connected?"🟢 Live":"🟡 Demo"}</p>
+            <p className="text-center text-xs mt-4 pb-6 opacity-50" style={{ color:"#9FE1CB" }}>Cedre Villas · Dubai Silicon Oasis · {connected?"🟢 Live":"🟡 Demo"}</p>
           </div>
         )}
 
@@ -608,7 +608,7 @@ export default function App() {
                   <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg flex-shrink-0" style={{ background:G }}>👤</div>
                   <div>
                     <p className="text-sm font-semibold text-gray-900">{item.seller}</p>
-                    <p className="text-xs text-gray-500">Cedre Villas resident · {item.time}</p>
+                    <p className="text-xs text-gray-500">DSO resident · {item.time}</p>
                   </div>
                   <div className="ml-auto text-xs font-semibold" style={{ color:AM }}>⭐ 4.9</div>
                 </div>
