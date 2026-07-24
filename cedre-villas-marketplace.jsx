@@ -65,6 +65,9 @@ function calculateDeliveryFee(porterBase) {
   return Math.ceil(porterBase * 1.2);
 }
 
+// Porter booking page — Option A handoff until API access is granted
+const PORTER_BOOKING_URL = "https://porter.ae/";
+
 // Porter estimated base prices within DSO (3-5km range)
 const PORTER_ESTIMATES = {
   car:   25,  // Porter car ~AED 18 base, ~AED 25 within DSO
@@ -114,6 +117,19 @@ function sellerBadge(salesCount) {
   if (salesCount < 5)  return { label:"✓ Verified", color:"#6366F1" };
   if (salesCount < 20) return { label:"⭐ Trusted", color:"#F59E0B" };
   return { label:"🏆 Top seller", color:"#25D366" };
+}
+
+// ── DEVICE WALLET DETECTION ──
+// Apple Pay only works in Safari/iOS; Google Pay on Android/Chrome.
+// Showing both to everyone means one is always a dead button.
+function detectWallet() {
+  if (typeof window === "undefined") return null;
+  const ua = navigator.userAgent || "";
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isSafari = /^((?!chrome|android|crios|fxios).)*safari/i.test(ua);
+  if (isIOS || isSafari) return { id:"apple", label:"Apple Pay", icon:"" };
+  if (/Android/i.test(ua)) return { id:"google", label:"Google Pay", icon:"G" };
+  return null; // desktop/other — card only
 }
 
 // ── GOOGLE SHEETS FETCH ──
@@ -188,6 +204,10 @@ export default function App() {
   const [deliveryType,setDeliveryType]=useState(null);
   const [buyerEmirate,setBuyerEmirate]=useState(null);
   const [showOffer,setShowOffer]=useState(false);
+  const [offerSent,setOfferSent]=useState(false);
+  const [wallet,setWallet]=useState(null);
+  const [dropAddress,setDropAddress]=useState("");
+  const [trackingLink,setTrackingLink]=useState("");
   const [offerAmount,setOfferAmount]=useState("");
   const [savedItems,setSavedItems]=useState([]);
   const [activeTab,setActiveTab]=useState("catalogue"); // catalogue | saved
@@ -209,6 +229,7 @@ export default function App() {
   // ── LOAD FROM SHEETS ──
   useEffect(() => {
     loadListings();
+    setWallet(detectWallet());
     const interval = setInterval(loadListings, 30000); // refresh every 30s
     return () => clearInterval(interval);
   }, []);
@@ -360,6 +381,14 @@ export default function App() {
           </div>
         )}
 
+        {offerSent && (
+          <div className="fixed top-1/2 left-1/2 z-50 px-5 py-4 rounded-2xl shadow-xl text-center" style={{ transform:"translate(-50%,-50%)", background:"#fff", maxWidth:280 }}>
+            <p className="text-3xl mb-1">📨</p>
+            <p className="font-bold text-gray-900 text-sm">Offer sent!</p>
+            <p className="text-xs text-gray-500 mt-1">The seller has been notified. You'll get a WhatsApp alert if they accept.</p>
+          </div>
+        )}
+
         {shareToast && (
           <div className="fixed top-1/2 left-1/2 z-50 px-5 py-3 rounded-2xl shadow-xl text-white text-sm font-semibold" style={{ transform:"translate(-50%,-50%)",background:GD }}>
             ✅ Message copied — paste into group!
@@ -398,27 +427,166 @@ export default function App() {
 
               {modal==="payment" && activeItem && (
                 <div className="p-6">
-                  <p className="text-xs uppercase tracking-widest text-gray-400 mb-1">Secure checkout</p>
-                  <p className="text-lg font-bold text-gray-900">{activeItem.title}</p>
-                  <div className="rounded-2xl p-4 mt-3 mb-4" style={{ background:"#eef2ff",border:`1px solid ${ES}` }}>
-                    <p className="text-xs font-bold mb-1" style={{ color:ES }}>🔒 Safe Pay protected</p>
-                    <p className="text-xs text-indigo-700">Powered by <strong>PayTabs</strong> — UAE's trusted payment system. Your money is held safely and released to the seller <strong>only after you confirm receipt.</strong></p>
-                    <EscrowBar step="payment_pending" />
-                  </div>
-                  {(() => {
-                    const f = calculateFee(activeItem.price);
-                    const total = activeItem.price + f.buyerFee;
-                    return (
-                      <div className="rounded-2xl p-4" style={{ background:"#f9fafb" }}>
-                        <div className="flex justify-between text-sm text-gray-600"><span>Item price</span><span>AED {activeItem.price}</span></div>
-                        <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Platform fee</span><span>AED {f.buyerFee}</span></div>
-                        <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900"><span>Total to pay</span><span>AED {total}</span></div>
+                  {/* STEP 1 — delivery or collect */}
+                  {deliveryStep === null && (
+                    <>
+                      <p className="text-xs uppercase tracking-widest text-gray-400 mb-1">How do you want to receive it?</p>
+                      <p className="text-lg font-bold text-gray-900 mb-4">{activeItem.title}</p>
+                      <button onClick={()=>setDeliveryStep(activeItem.cat==="Furniture" ? "address" : "size")}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl text-left mb-3" style={{ background:"#f0fdf4",border:`1.5px solid ${G}` }}>
+                        <span className="text-3xl">🚗</span>
+                        <div className="flex-1">
+                          <p className="font-bold text-gray-900 text-sm">Get it delivered</p>
+                          <p className="text-xs text-gray-500 mt-0.5">Booked via Porter · Dubai & Sharjah</p>
+                        </div>
+                        <span className="text-gray-400">→</span>
+                      </button>
+                      <button onClick={()=>{ setDeliveryType("collect"); setDeliveryStep("checkout"); }}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl text-left" style={{ background:"#f8fafc",border:"1.5px solid #e5e7eb" }}>
+                        <span className="text-3xl">🏠</span>
+                        <div className="flex-1">
+                          <p className="font-bold text-gray-900 text-sm">Self collect</p>
+                          <p className="text-xs text-gray-500 mt-0.5">Arrange with seller after payment — free</p>
+                        </div>
+                        <span className="text-gray-400">→</span>
+                      </button>
+                    </>
+                  )}
+
+                  {/* STEP 2 — vehicle size */}
+                  {deliveryStep === "size" && (
+                    <>
+                      <button onClick={()=>setDeliveryStep(null)} className="text-gray-400 text-sm mb-3">← Back</button>
+                      <p className="text-sm font-bold text-gray-900 mb-3">What size is the item?</p>
+                      <button onClick={()=>{ setDeliveryType("car"); setDeliveryQuote(calculateDeliveryFee(PORTER_ESTIMATES.car)); setDeliveryStep("address"); }}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl text-left mb-3" style={{ background:"#f0fdf4",border:`1.5px solid ${G}` }}>
+                        <span className="text-3xl">📦</span>
+                        <div className="flex-1">
+                          <p className="font-bold text-gray-900 text-sm">Small — fits in a car</p>
+                          <p className="text-xs text-gray-500 mt-0.5">Electronics, kids items, fashion</p>
+                        </div>
+                        <p className="text-sm font-bold" style={{ color:GD }}>~AED {calculateDeliveryFee(PORTER_ESTIMATES.car)}</p>
+                      </button>
+                      <button onClick={()=>{ setDeliveryType("truck"); setDeliveryQuote(calculateDeliveryFee(PORTER_ESTIMATES.truck)); setDeliveryStep("address"); }}
+                        className="w-full flex items-center gap-4 p-4 rounded-2xl text-left" style={{ background:"#fefce8",border:`1.5px solid ${AM}` }}>
+                        <span className="text-3xl">🛋️</span>
+                        <div className="flex-1">
+                          <p className="font-bold text-gray-900 text-sm">Large — needs a truck</p>
+                          <p className="text-xs text-gray-500 mt-0.5">Furniture, appliances, heavy items</p>
+                        </div>
+                        <p className="text-sm font-bold" style={{ color:AM }}>~AED {calculateDeliveryFee(PORTER_ESTIMATES.truck)}</p>
+                      </button>
+                      <p className="text-xs text-gray-400 text-center mt-3">Final price confirmed by Porter at booking</p>
+                    </>
+                  )}
+
+                  {/* STEP 3 — delivery address */}
+                  {deliveryStep === "address" && (
+                    <>
+                      <button onClick={()=>setDeliveryStep(activeItem.cat==="Furniture" ? null : "size")} className="text-gray-400 text-sm mb-3">← Back</button>
+                      <p className="text-sm font-bold text-gray-900 mb-1">Where should we deliver?</p>
+                      <p className="text-xs text-gray-400 mb-3">Porter covers Dubai and Sharjah only</p>
+                      {activeItem.cat==="Furniture" && (
+                        <div className="rounded-xl p-3 mb-3" style={{ background:"#fffbeb",border:`1px solid ${AM}` }}>
+                          <p className="text-xs text-amber-800"><strong>🛋️ Furniture</strong> — a pickup truck will be booked automatically.</p>
+                        </div>
+                      )}
+                      <select value={buyerEmirate||""} onChange={e=>setBuyerEmirate(e.target.value)}
+                        className="w-full px-4 py-3 rounded-xl text-sm outline-none mb-2" style={{ border:"1px solid #e5e7eb",background:"#fff" }}>
+                        <option value="">Select emirate…</option>
+                        <option value="dubai">Dubai</option>
+                        <option value="sharjah">Sharjah</option>
+                        <option value="other">Other emirate</option>
+                      </select>
+                      {buyerEmirate==="other" ? (
+                        <div className="rounded-xl p-3 mb-3" style={{ background:"#fef2f2",border:"1px solid #EF4444" }}>
+                          <p className="text-xs text-red-700"><strong>Not covered.</strong> Porter delivers to Dubai and Sharjah only.</p>
+                          <button onClick={()=>{ setDeliveryType("collect"); setBuyerEmirate(null); setDeliveryStep("checkout"); }}
+                            className="w-full mt-2 py-2 rounded-xl text-white text-xs font-bold" style={{ background:GD }}>Switch to self collect</button>
+                        </div>
+                      ) : buyerEmirate ? (
+                        <>
+                          <textarea value={dropAddress} onChange={e=>setDropAddress(e.target.value)} rows={3}
+                            placeholder="Building / villa number, street, area&#10;e.g. Villa 42, Cedre Villas, DSO"
+                            className="w-full px-4 py-3 rounded-xl text-sm outline-none resize-none mb-3"
+                            style={{ border:`1px solid ${dropAddress.length>9?G:"#e5e7eb"}`,background:"#fff" }} />
+                          <button onClick={()=>setDeliveryStep("slot")} disabled={dropAddress.trim().length<10}
+                            className="w-full py-3 rounded-2xl font-bold text-white text-sm"
+                            style={{ background: dropAddress.trim().length>=10 ? G : "#d1d5db" }}>
+                            Continue →
+                          </button>
+                          {dropAddress.trim().length<10 && <p className="text-xs text-gray-400 text-center mt-2">Enter a full address so the driver can find you</p>}
+                        </>
+                      ) : null}
+                    </>
+                  )}
+
+                  {/* STEP 4 — pickup slot */}
+                  {deliveryStep === "slot" && (
+                    <>
+                      <button onClick={()=>setDeliveryStep("address")} className="text-gray-400 text-sm mb-3">← Back</button>
+                      <p className="text-sm font-bold text-gray-900 mb-1">Preferred pickup slot</p>
+                      <p className="text-xs text-gray-400 mb-3">The seller confirms before Porter is booked</p>
+                      {DELIVERY_SLOTS.map(slot=>(
+                        <button key={slot.id} onClick={()=>{ setDeliverySlot(slot); setDeliveryStep("checkout"); }}
+                          className="w-full flex items-center gap-3 p-3 rounded-xl text-left mb-2"
+                          style={{ background:"#f9fafb",border:"1px solid #e5e7eb" }}>
+                          <span>{slot.icon}</span>
+                          <p className="text-sm font-semibold text-gray-900">{slot.label} · {slot.time}</p>
+                        </button>
+                      ))}
+                    </>
+                  )}
+
+                  {/* STEP 5 — checkout */}
+                  {deliveryStep === "checkout" && (
+                    <>
+                      <button onClick={()=>setDeliveryStep(deliveryType==="collect"?null:"slot")} className="text-gray-400 text-sm mb-3">← Back</button>
+                      <p className="text-xs uppercase tracking-widest text-gray-400 mb-1">Order summary</p>
+                      <p className="text-lg font-bold text-gray-900 mb-3">{activeItem.title}</p>
+                      <div className="rounded-2xl p-4 mb-3" style={{ background:"#eef2ff",border:`1px solid ${ES}` }}>
+                        <p className="text-xs font-bold mb-1" style={{ color:ES }}>🔒 Safe Pay protected</p>
+                        <p className="text-xs text-indigo-700">Powered by <strong>PayTabs</strong>. Money released to the seller only after you confirm receipt.</p>
+                        <EscrowBar step="payment_pending" />
                       </div>
-                    );
-                  })()}
-                  <button onClick={confirmPay} className="w-full mt-4 py-4 rounded-2xl text-white font-bold shadow" style={{ background:ES }}>🔒 Pay safely</button>
-                  <button onClick={confirmPay} className="w-full mt-2 py-3 rounded-2xl text-white font-semibold text-sm" style={{ background:G }}>🍎 Apple Pay</button>
-                  <button onClick={()=>setModal(null)} className="w-full mt-2 py-3 rounded-2xl text-gray-500 font-semibold text-sm">Cancel</button>
+                      {(() => {
+                        const f = calculateFee(activeItem.price);
+                        const del = deliveryType!=="collect" ? (deliveryQuote||0) : 0;
+                        const total = activeItem.price + f.buyerFee + del;
+                        return (
+                          <div className="rounded-2xl p-4 mb-3" style={{ background:"#f9fafb" }}>
+                            <div className="flex justify-between text-sm text-gray-600"><span>Item price</span><span>AED {activeItem.price}</span></div>
+                            <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Platform fee</span><span>AED {f.buyerFee}</span></div>
+                            {deliveryType!=="collect" ? (
+                              <>
+                                <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Delivery ({deliveryType==="car"?"🚗 Car":"🛻 Truck"})</span><span>~AED {del}</span></div>
+                                {deliverySlot && <div className="flex justify-between text-xs text-gray-400 mt-1"><span>Slot</span><span>{deliverySlot.label} · {deliverySlot.time}</span></div>}
+                              </>
+                            ) : (
+                              <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Delivery</span><span>Self collect — free</span></div>
+                            )}
+                            <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900"><span>Total</span><span>AED {total}</span></div>
+                          </div>
+                        );
+                      })()}
+                      {deliveryType!=="collect" && (
+                        <div className="rounded-xl p-3 mb-3" style={{ background:"#fffbeb",border:`1px solid ${AM}` }}>
+                          <p className="text-xs font-bold text-amber-800">📋 What happens next</p>
+                          <p className="text-xs text-amber-700 mt-1">1. You pay into Safe Pay<br/>2. Seller confirms the slot<br/>3. Porter is booked — you get a tracking link<br/>4. Confirm receipt → seller paid</p>
+                          <p className="text-xs text-amber-600 mt-2">Delivery price is an estimate. Porter confirms the exact fare at booking.</p>
+                        </div>
+                      )}
+                      <button onClick={confirmPay} className="w-full py-4 rounded-2xl text-white font-bold shadow" style={{ background:ES }}>💳 Pay by card</button>
+                      {wallet && (
+                        <button onClick={confirmPay} className="w-full mt-2 py-3 rounded-2xl text-white font-semibold text-sm flex items-center justify-center gap-2" style={{ background:"#000" }}>
+                          <span style={{ fontWeight:700 }}>{wallet.icon}</span> {wallet.label}
+                        </button>
+                      )}
+                      <p className="text-xs text-gray-400 text-center mt-2">Secured by PayTabs · Visa, Mastercard{wallet ? `, ${wallet.label}` : ""}</p>
+                      <button onClick={()=>{ setModal(null); setDeliveryStep(null); setDeliveryType(null); setDeliverySlot(null); setDropAddress(""); setBuyerEmirate(null); }}
+                        className="w-full mt-2 py-3 rounded-2xl text-gray-500 font-semibold text-sm">Cancel</button>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -437,6 +605,29 @@ export default function App() {
                     <div className="rounded-xl p-3" style={{ background:"#f0fdf4",border:`1px solid ${G}` }}>
                       <p className="text-xs font-bold" style={{ color:GD }}>Seller: {activeItem.seller}</p>
                       <p className="text-xs text-gray-600 mt-0.5">{activeItem.phone} — notified via WhatsApp</p>
+                      <a href={`https://wa.me/${(activeItem.phone||"").replace(/[^0-9]/g,"")}`} target="_blank" rel="noopener noreferrer" className="mt-2 inline-flex items-center gap-1 text-xs font-bold" style={{ color:G }}>💬 Chat with seller →</a>
+                    </div>
+
+                    {deliveryType && deliveryType!=="collect" && (
+                      <div className="rounded-xl p-3 mt-3" style={{ background:"#fffbeb",border:`1px solid ${AM}` }}>
+                        <p className="text-xs font-bold text-amber-800">🚚 Book the Porter driver</p>
+                        <p className="text-xs text-amber-700 mt-1">
+                          Pickup: <strong>{activeItem.seller}</strong>, Cedre Villas DSO<br/>
+                          Drop: <strong>{dropAddress || "your address"}</strong><br/>
+                          Vehicle: <strong>{deliveryType==="car" ? "Car" : "Pickup truck"}</strong>
+                          {deliverySlot && <><br/>Slot: <strong>{deliverySlot.label} · {deliverySlot.time}</strong></>}
+                        </p>
+                        <a href={PORTER_BOOKING_URL} target="_blank" rel="noopener noreferrer"
+                          className="block w-full mt-2 py-2.5 rounded-xl text-center text-white text-xs font-bold" style={{ background:AM }}>
+                          Open Porter to book →
+                        </a>
+                        <p className="text-xs text-amber-600 mt-2">Paste the tracking link below once booked, so the seller can follow it too.</p>
+                        <input value={trackingLink} onChange={e=>setTrackingLink(e.target.value)}
+                          placeholder="Paste Porter tracking link"
+                          className="w-full mt-2 px-3 py-2 rounded-xl text-xs outline-none" style={{ border:"1px solid #e5e7eb" }} />
+                        {trackingLink && <p className="text-xs mt-1" style={{ color:G }}>✅ Saved — shared with the seller</p>}
+                      </div>
+                    )}
                     </div>
                   </div>
                   <button onClick={confirmHandover} className="w-full mt-5 py-4 rounded-2xl text-white font-bold shadow" style={{ background:G }}>✅ I received the item — release payment to seller</button>
@@ -786,10 +977,7 @@ export default function App() {
                 </div>
                 {item.status==="available"&&(
                   <div className="mt-5 space-y-2">
-                    <div className="flex gap-3">
-                      <button onClick={()=>handleBuy(item)} className="flex-1 py-4 rounded-2xl text-white font-bold text-base shadow" style={{ background:G }}>🔒 Buy</button>
-                      <a href={`https://wa.me/${(item.phone||"").replace(/[^0-9]/g,"")}`} className="py-4 px-5 rounded-2xl font-bold text-base border-2 flex items-center justify-center" style={{ borderColor:G,color:GD }}>💬</a>
-                    </div>
+                    <button onClick={()=>handleBuy(item)} className="w-full py-4 rounded-2xl text-white font-bold text-base shadow" style={{ background:G }}>🔒 Buy</button>
                     {!showOffer ? (
                       <button onClick={()=>setShowOffer(true)} className="w-full py-3 rounded-2xl text-sm font-semibold" style={{ background:"#f9fafb",color:"#374151",border:"1px solid #e5e7eb" }}>
                         💬 Make an offer
@@ -802,13 +990,16 @@ export default function App() {
                             placeholder={`Max AED ${item.price}`}
                             className="flex-1 px-3 py-2 rounded-xl text-sm outline-none" style={{ border:"1px solid #e5e7eb" }} />
                           <button onClick={()=>{
-                            if(offerAmount && parseInt(offerAmount) < item.price) {
-                              window.open(`https://wa.me/${(item.phone||"").replace(/[^0-9]/g,"")}?text=Hi ${item.seller}! I'm interested in your ${item.title} listed at AED ${item.price} on Cedre Villas Marketplace. Would you accept AED ${offerAmount}?`,"_blank");
-                              setShowOffer(false); setOfferAmount("");
+                            const amt = parseInt(offerAmount);
+                            if(amt && amt > 0 && amt < item.price) {
+                              setOfferSent(true);
+                              setShowOffer(false);
+                              setOfferAmount("");
+                              setTimeout(()=>setOfferSent(false), 4000);
                             }
                           }} className="px-4 py-2 rounded-xl text-white text-sm font-bold" style={{ background:G }}>Send</button>
                         </div>
-                        <p className="text-xs text-gray-400 mt-1">Opens WhatsApp chat with seller</p>
+                        <p className="text-xs text-gray-400 mt-1">We'll notify the seller. If they accept, you'll get a WhatsApp alert to complete the purchase.</p>
                       </div>
                     )}
                     <button onClick={()=>setSavedItems(prev=>prev.find(s=>s.id===item.id)?prev.filter(s=>s.id!==item.id):[...prev,item])}
