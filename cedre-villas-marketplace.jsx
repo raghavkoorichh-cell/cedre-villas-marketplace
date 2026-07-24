@@ -628,7 +628,6 @@ export default function App() {
                         {trackingLink && <p className="text-xs mt-1" style={{ color:G }}>✅ Saved — shared with the seller</p>}
                       </div>
                     )}
-                    </div>
                   </div>
                   <button onClick={confirmHandover} className="w-full mt-5 py-4 rounded-2xl text-white font-bold shadow" style={{ background:G }}>✅ I received the item — release payment to seller</button>
                   <button onClick={()=>setModal("dispute")} className="w-full mt-2 py-3 rounded-2xl font-semibold text-sm" style={{ color:"#EF4444" }}>⚠️ Raise a dispute</button>
