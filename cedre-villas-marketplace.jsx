@@ -2,11 +2,14 @@ import { useState, useEffect, useRef } from "react";
 
 // ══════════════════════════════════════════════════════════════
 // CEDRE VILLAS MARKETPLACE
-// Replace these 3 values with your real ones (Step 3)
+// Credentials come from Vercel Environment Variables.
+// Set VITE_SHEET_ID and VITE_API_KEY in:
+//   Vercel → project → Settings → Environment Variables
+// Never hardcode the API key here — this file is public on GitHub.
 // ══════════════════════════════════════════════════════════════
 const SHEETS_CONFIG = {
-  SHEET_ID:   "YOUR_GOOGLE_SHEET_ID",        // from Sheet URL
-  API_KEY:    "YOUR_GOOGLE_SHEETS_API_KEY",  // from Google Cloud
+  SHEET_ID:   import.meta.env.VITE_SHEET_ID,
+  API_KEY:    import.meta.env.VITE_API_KEY,
   SHEET_NAME: "📋 Listings",
 };
 
@@ -18,9 +21,9 @@ const GR = { Electronics:"from-slate-100 to-slate-200",Kids:"from-pink-100 to-ro
 const CATS = ["All","Electronics","Kids","Home","Furniture","Fashion","Other"];
 const ESCROW_STEPS = [
   { key:"payment_pending",label:"Payment",icon:"💳" },
-  { key:"paid_in_escrow", label:"Escrow",  icon:"🔒" },
+  { key:"safe_pay_holding", label:"Held Safely", icon:"🛡️" },
   { key:"item_handed",    label:"Handover",icon:"🤝" },
-  { key:"released",       label:"Complete",icon:"✅" },
+  { key:"released",       label:"Done",icon:"✅" },
 ];
 const BOT = [
   { from:"bot",text:"👋 Hi! Welcome to *Cedre Villas Marketplace*.\n\nWhat would you like to do?",type:"options",opts:["🛍️ Sell something","🔍 Browse listings","❓ Help"] },
@@ -56,9 +59,66 @@ function calculateFee(price) {
   }
 }
 
+// ── DELIVERY FEE CALCULATION ──
+function calculateDeliveryFee(porterBase) {
+  // 20% markup on Porter's price
+  return Math.ceil(porterBase * 1.2);
+}
+
+// Porter estimated base prices within DSO (3-5km range)
+const PORTER_ESTIMATES = {
+  car:   25,  // Porter car ~AED 18 base, ~AED 25 within DSO
+  truck: 65,  // Porter pickup truck ~AED 34 base, ~AED 65 within DSO
+};
+
+const DELIVERY_SLOTS = [
+  { id:"today_morning",   label:"Today",     time:"9am – 12pm",  icon:"🌅" },
+  { id:"today_afternoon", label:"Today",     time:"2pm – 5pm",   icon:"☀️" },
+  { id:"today_evening",   label:"Today",     time:"6pm – 8pm",   icon:"🌆" },
+  { id:"tomorrow_morning",label:"Tomorrow",  time:"9am – 12pm",  icon:"🌅" },
+  { id:"tomorrow_afternoon",label:"Tomorrow",time:"2pm – 5pm",   icon:"☀️" },
+];
+
+// ── PROHIBITED ITEMS ──
+const PROHIBITED = [
+  "alcohol","beer","wine","spirits","liquor","vape","cigarette",
+  "weapon","knife","gun","pistol","rifle","ammo","ammunition",
+  "counterfeit","fake","replica","clone",
+  "medication","medicine","pills","prescription","drugs",
+  "adult","explicit","xxx",
+];
+function checkProhibited(title, desc) {
+  const text = (title + " " + desc).toLowerCase();
+  return PROHIBITED.find(w => text.includes(w)) || null;
+}
+
+// ── PORTER COVERAGE ──
+const PORTER_EMIRATES = ["dubai","sharjah","دبي","الشارقة"];
+function porterCoversEmirate(address) {
+  if (!address) return true; // default allow, check at booking
+  return PORTER_EMIRATES.some(e => address.toLowerCase().includes(e));
+}
+
+// ── LISTING EXPIRY ──
+function daysUntilExpiry(timestamp) {
+  if (!timestamp) return 30;
+  const listed = new Date(timestamp);
+  const now = new Date();
+  const days = Math.floor((now - listed) / (1000 * 60 * 60 * 24));
+  return Math.max(0, 30 - days);
+}
+
+// ── SELLER TRUST BADGE ──
+function sellerBadge(salesCount) {
+  if (!salesCount || salesCount < 1) return { label:"🆕 New", color:"#9CA3AF" };
+  if (salesCount < 5)  return { label:"✓ Verified", color:"#6366F1" };
+  if (salesCount < 20) return { label:"⭐ Trusted", color:"#F59E0B" };
+  return { label:"🏆 Top seller", color:"#25D366" };
+}
+
 // ── GOOGLE SHEETS FETCH ──
 async function fetchListings() {
-  if (SHEETS_CONFIG.SHEET_ID === "YOUR_GOOGLE_SHEET_ID") return SAMPLE;
+  if (!SHEETS_CONFIG.SHEET_ID || !SHEETS_CONFIG.API_KEY) return SAMPLE;
   try {
     const range  = encodeURIComponent(`${SHEETS_CONFIG.SHEET_NAME}!A3:N1000`);
     const url    = `https://sheets.googleapis.com/v4/spreadsheets/${SHEETS_CONFIG.SHEET_ID}/values/${range}?key=${SHEETS_CONFIG.API_KEY}`;
@@ -125,6 +185,18 @@ export default function App() {
   const [timer,    setTimer]    = useState(487);
   const [toast,    setToast]    = useState(null);
   const [shareToast,setShareToast]=useState(false);
+  const [deliveryType,setDeliveryType]=useState(null);
+  const [buyerEmirate,setBuyerEmirate]=useState(null);
+  const [showOffer,setShowOffer]=useState(false);
+  const [offerAmount,setOfferAmount]=useState("");
+  const [savedItems,setSavedItems]=useState([]);
+  const [activeTab,setActiveTab]=useState("catalogue"); // catalogue | saved
+  const [prohibitedWord,setProhibitedWord]=useState(null);
+  const [sellerRating,setSellerRating]=useState(0);
+  const [showRating,setShowRating]=useState(false); // "car" | "truck" | "collect"
+  const [deliverySlot,setDeliverySlot]=useState(null);
+  const [deliveryQuote,setDeliveryQuote]=useState(null);
+  const [deliveryStep,setDeliveryStep]=useState(null); // "type" | "size" | "slot" | "confirm" | "tracking"
   // bot
   const [msgs,  setMsgs]  = useState([]);
   const [bStep, setBStep] = useState(0);
@@ -234,7 +306,7 @@ export default function App() {
 
   function confirmPay() {
     setListings(prev=>prev.map(l=>l.id===activeItem.id?{...l,status:"reserved"}:l));
-    setEscrow("paid_in_escrow"); setModal("escrow");
+    setEscrow("safe_pay_holding"); setModal("escrow");
   }
 
   function confirmHandover() {
@@ -252,7 +324,7 @@ export default function App() {
     return null;
   };
 
-  const connected = SHEETS_CONFIG.SHEET_ID !== "YOUR_GOOGLE_SHEET_ID";
+  const connected = Boolean(SHEETS_CONFIG.SHEET_ID && SHEETS_CONFIG.API_KEY);
 
   // ══════════════════════════════════════════════════════════
   // RENDER
@@ -329,8 +401,8 @@ export default function App() {
                   <p className="text-xs uppercase tracking-widest text-gray-400 mb-1">Secure checkout</p>
                   <p className="text-lg font-bold text-gray-900">{activeItem.title}</p>
                   <div className="rounded-2xl p-4 mt-3 mb-4" style={{ background:"#eef2ff",border:`1px solid ${ES}` }}>
-                    <p className="text-xs font-bold mb-1" style={{ color:ES }}>🔒 Escrow protected</p>
-                    <p className="text-xs text-indigo-700">Your money is held safely. Released to seller <strong>only after you confirm receipt.</strong></p>
+                    <p className="text-xs font-bold mb-1" style={{ color:ES }}>🔒 Safe Pay protected</p>
+                    <p className="text-xs text-indigo-700">Powered by <strong>PayTabs</strong> — UAE's trusted payment system. Your money is held safely and released to the seller <strong>only after you confirm receipt.</strong></p>
                     <EscrowBar step="payment_pending" />
                   </div>
                   {(() => {
@@ -339,14 +411,12 @@ export default function App() {
                     return (
                       <div className="rounded-2xl p-4" style={{ background:"#f9fafb" }}>
                         <div className="flex justify-between text-sm text-gray-600"><span>Item price</span><span>AED {activeItem.price}</span></div>
-                        <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Buyer platform fee</span><span>AED {f.buyerFee}</span></div>
-                        <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Seller platform fee</span><span>AED {f.sellerFee} (deducted from seller)</span></div>
-                        <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900"><span>You pay (into escrow)</span><span>AED {total}</span></div>
-                        <p className="text-xs text-gray-400 mt-2 text-center">Seller receives AED {activeItem.price - f.sellerFee} after handover</p>
+                        <div className="flex justify-between text-sm text-gray-400 mt-1"><span>Platform fee</span><span>AED {f.buyerFee}</span></div>
+                        <div className="border-t border-gray-200 mt-3 pt-3 flex justify-between font-bold text-gray-900"><span>Total to pay</span><span>AED {total}</span></div>
                       </div>
                     );
                   })()}
-                  <button onClick={confirmPay} className="w-full mt-4 py-4 rounded-2xl text-white font-bold shadow" style={{ background:ES }}>🔒 Pay into escrow</button>
+                  <button onClick={confirmPay} className="w-full mt-4 py-4 rounded-2xl text-white font-bold shadow" style={{ background:ES }}>🔒 Pay safely</button>
                   <button onClick={confirmPay} className="w-full mt-2 py-3 rounded-2xl text-white font-semibold text-sm" style={{ background:G }}>🍎 Apple Pay</button>
                   <button onClick={()=>setModal(null)} className="w-full mt-2 py-3 rounded-2xl text-gray-500 font-semibold text-sm">Cancel</button>
                 </div>
@@ -356,7 +426,7 @@ export default function App() {
                 <div className="p-6">
                   <div className="text-center mb-2">
                     <span className="text-5xl">🔒</span>
-                    <p className="text-lg font-bold text-gray-900 mt-2">AED {activeItem.price} in escrow</p>
+                    <p className="text-lg font-bold text-gray-900 mt-2">AED {activeItem.price} held safely</p>
                   </div>
                   <EscrowBar step={escrow} />
                   <div className="mt-4 space-y-3">
@@ -369,7 +439,7 @@ export default function App() {
                       <p className="text-xs text-gray-600 mt-0.5">{activeItem.phone} — notified via WhatsApp</p>
                     </div>
                   </div>
-                  <button onClick={confirmHandover} className="w-full mt-5 py-4 rounded-2xl text-white font-bold shadow" style={{ background:G }}>✅ I received the item — release payment</button>
+                  <button onClick={confirmHandover} className="w-full mt-5 py-4 rounded-2xl text-white font-bold shadow" style={{ background:G }}>✅ I received the item — release payment to seller</button>
                   <button onClick={()=>setModal("dispute")} className="w-full mt-2 py-3 rounded-2xl font-semibold text-sm" style={{ color:"#EF4444" }}>⚠️ Raise a dispute</button>
                 </div>
               )}
@@ -378,9 +448,9 @@ export default function App() {
                 <div className="p-6 text-center">
                   <span className="text-5xl">⚠️</span>
                   <p className="text-lg font-bold text-gray-900 mt-3">Raise a dispute</p>
-                  <p className="text-sm text-gray-500 mt-1 mb-4">Your money stays in escrow until resolved.</p>
+                  <p className="text-sm text-gray-500 mt-1 mb-4">Your money stays held safely until resolved.</p>
                   <div className="space-y-2 text-left">
-                    {["Item not as described","Item not received","Item damaged","Seller not responding"].map(r=>(
+                    {["Item not as described","Item not received","Item damaged","Seller not responding","Item sold elsewhere by seller","Wrong item delivered"].map(r=>(
                       <button key={r} onClick={()=>setModal(null)} className="w-full text-left px-4 py-3 rounded-xl text-sm font-medium text-gray-700" style={{ background:"#f9fafb",border:"1px solid #e5e7eb" }}>{r}</button>
                     ))}
                   </div>
@@ -516,6 +586,98 @@ export default function App() {
                         <div className="mt-3 space-y-2">
                           <button onClick={()=>{ setShareToast(true); setTimeout(()=>setShareToast(false),2500); }} className="w-full py-2.5 rounded-xl text-sm font-bold text-white" style={{ background:G }}>📤 Share to Cedre Villas group</button>
                           <button onClick={()=>setScreen("catalogue")} className="w-full py-2.5 rounded-xl text-sm font-semibold" style={{ background:"#f0fdf4",color:GD }}>🛍️ Browse catalogue</button>
+                          <div className="mt-2 p-3 rounded-xl" style={{ background:"#fffbeb",border:`1px solid #F59E0B` }}>
+                            <p className="text-xs font-bold text-amber-800">💰 Set up your payment</p>
+                            <p className="text-xs text-amber-700 mt-0.5">Set up how you receive money when your item sells — takes 1 minute.</p>
+                            <button onClick={()=>{
+                              setMsgs(prev=>[...prev,
+                                { from:"bot", text:"✅ Item listed!
+
+Now let's set up your payment — *one-time setup* so you get paid instantly when your item sells.
+
+How would you like to receive payment?", type:"options", opts:["💚 AANI (Instant)","🏦 Bank Transfer (IBAN)"] }
+                              ]);
+                              setBStep(8);
+                            }} className="w-full mt-2 py-2 rounded-xl text-xs font-bold text-white" style={{ background:AM }}>💰 Set up payment now</button>
+                          </div>
+                        </div>
+                      )}
+                      {msg.type==="options" && i===msgs.length-1 && msg.opts && msg.opts.includes("💚 AANI (Instant)") && bStep===8 &&(
+                        <div className="mt-3 space-y-2">
+                          {msg.opts.map(opt=>(
+                            <button key={opt} onClick={()=>{
+                              if(opt.includes("AANI")) {
+                                setMsgs(prev=>[...prev,
+                                  { from:"user", text:opt },
+                                  { from:"bot", text:"💚 *AANI — great choice!*
+
+Do you already have AANI set up on your UAE banking app?", type:"aani_check" }
+                                ]);
+                              } else {
+                                setMsgs(prev=>[...prev,
+                                  { from:"user", text:opt },
+                                  { from:"bot", text:"🏦 *Bank Transfer selected*
+
+Please share your IBAN number.
+
+📋 Format: AE + 21 digits
+Example: AE070331234567890123456
+
+💡 Find it in your banking app → Account Details → IBAN", type:"iban_flow" }
+                                ]);
+                              }
+                            }} className="w-full py-2.5 px-3 rounded-xl text-sm font-semibold text-left" style={{ background:"#f0fdf4",color:GD,border:`1px solid ${G}` }}>{opt}</button>
+                          ))}
+                        </div>
+                      )}
+                      {msg.type==="aani_check"&&i===msgs.length-1&&(
+                        <div className="mt-3 space-y-2">
+                          <p className="text-xs font-bold mb-2" style={{ color:G }}>Do you have AANI set up?</p>
+                          <button onClick={()=>botNext("✅ Yes, I have AANI", bStep+1, bData)} className="w-full py-2.5 rounded-xl text-sm font-semibold text-left px-3" style={{ background:"#f0fdf4",color:GD,border:`1px solid ${G}` }}>✅ Yes — enter my AANI number</button>
+                          <button onClick={()=>{ setBotMessages && setMsgs(prev=>[...prev,{ from:"bot",text:"📱 *Setting up AANI takes 2 minutes:*
+
+1️⃣ Open your UAE banking app
+2️⃣ Look for 'AANI' or 'Instant Payment'
+3️⃣ Register your mobile number
+4️⃣ Done — receive money instantly
+
+🏦 *Supported banks:*
+Emirates NBD, ADCB, FAB, Mashreq, DIB, RAK Bank and all major UAE banks
+
+Once registered, reply with your mobile number to save it.",type:"aani_register" }]); }} className="w-full py-2.5 rounded-xl text-sm font-semibold text-left px-3" style={{ background:"#f9fafb",color:"#374151",border:"1px solid #e5e7eb" }}>❓ No — help me set it up</button>
+                        </div>
+                      )}
+                      {msg.type==="aani_register"&&i===msgs.length-1&&(
+                        <div className="mt-3 p-3 rounded-xl" style={{ background:"#f0fdf4",border:`1px solid ${G}` }}>
+                          <p className="text-xs font-bold mb-1" style={{ color:GD }}>Once registered:</p>
+                          <p className="text-xs text-gray-600">Type your UAE mobile number (e.g. 0501234567) and we'll save it for instant payouts.</p>
+                        </div>
+                      )}
+                      {msg.type==="iban_flow"&&i===msgs.length-1&&(
+                        <div className="mt-3 space-y-2">
+                          <div className="p-3 rounded-xl" style={{ background:"#f9fafb",border:"1px solid #e5e7eb" }}>
+                            <p className="text-xs text-gray-600">Format: <strong>AE + 21 digits</strong></p>
+                            <p className="text-xs text-gray-400 mt-0.5">Find it: Banking app → Account Details → IBAN</p>
+                          </div>
+                          <p className="text-xs text-gray-400 text-center">Type your AANI number above</p>
+                          <button onClick={()=>setMsgs(prev=>[...prev,
+                            { from:"user", text:"🏦 IBAN noted" },
+                            { from:"bot", text:"✅ *All set!*
+
+Buyer pays → we hold it safely → you hand over → buyer confirms → you get paid. 🏦
+
+We'll notify you on WhatsApp at every step.", type:"payment_saved" }
+                          ])} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background:GD }}>✓ IBAN entered in chat above</button>
+                        </div>
+                      )}
+                      {msg.type==="payment_saved"&&(
+                        <div className="mt-3 space-y-2">
+                          <div className="p-3 rounded-xl" style={{ background:"#f0fdf4",border:`1px solid ${G}` }}>
+                            <p className="text-xs font-bold" style={{ color:GD }}>🛡️ Powered by PayTabs</p>
+                            <p className="text-xs text-gray-600 mt-1">UAE's trusted payment processor. Your money is protected at every step.</p>
+                          </div>
+                          <button onClick={startBot} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background:G }}>📤 List another item</button>
+                          <button onClick={()=>setScreen("catalogue")} className="w-full py-2.5 rounded-xl text-sm font-semibold" style={{ background:"#f0fdf4",color:GD }}>🛍️ Browse catalogue</button>
                         </div>
                       )}
                     </div>
@@ -582,11 +744,26 @@ export default function App() {
                         {item.photo ? <img src={item.photo} alt={item.title} className="w-full h-full object-cover" onError={e=>{ e.target.style.display="none"; }} /> : <span className="text-5xl">{item.emoji}</span>}
                         {b&&<div className="absolute inset-0 flex items-center justify-center" style={{ background:"rgba(0,0,0,0.4)" }}><span className="font-bold text-xs tracking-widest px-3 py-1 rounded-full text-white" style={{ background:b.bg }}>{b.label}</span></div>}
                         {!b&&<div className="absolute top-2 right-2 w-2 h-2 rounded-full" style={{ background:G }} />}
+                        {/* Wishlist heart */}
+                        <button onClick={e=>{ e.stopPropagation(); setSavedItems(prev=>prev.find(s=>s.id===item.id)?prev.filter(s=>s.id!==item.id):[...prev,item]); }}
+                          className="absolute top-2 left-2 w-7 h-7 rounded-full flex items-center justify-center text-sm"
+                          style={{ background:"rgba(255,255,255,0.9)" }}>
+                          {savedItems.find(s=>s.id===item.id) ? "❤️" : "🤍"}
+                        </button>
+                        {/* Expiry warning */}
+                        {daysUntilExpiry(item.time) <= 5 && item.status==="available" && (
+                          <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-full text-white" style={{ background:"#EF4444",fontSize:9,fontWeight:700 }}>
+                            Expires in {daysUntilExpiry(item.time)}d
+                          </div>
+                        )}
                       </div>
                       <div className="p-3">
                         <p className="text-xs text-gray-400">{item.cat}</p>
                         <p className="font-semibold text-gray-900 text-sm leading-tight mt-0.5">{item.title}</p>
-                        <p className="font-bold mt-1" style={{ color:GD }}>AED {item.price}</p>
+                        <div className="flex items-center justify-between mt-1">
+                          <p className="font-bold" style={{ color:GD }}>AED {item.price}</p>
+                          {item.salesCount && <span className="text-xs font-semibold px-1.5 py-0.5 rounded-full text-white" style={{ background:sellerBadge(item.salesCount).color,fontSize:9 }}>{sellerBadge(item.salesCount).label}</span>}
+                        </div>
                         <p className="text-xs text-gray-400 mt-0.5">{item.seller} · {item.time}</p>
                       </div>
                     </button>
@@ -624,7 +801,7 @@ export default function App() {
                 <p className="text-gray-600 text-sm mt-3 leading-relaxed">{item.desc}</p>
                 <div className="flex items-center gap-2 mt-3 px-3 py-2 rounded-xl" style={{ background:"#eef2ff" }}>
                   <span style={{ color:ES }}>🔒</span>
-                  <p className="text-xs" style={{ color:ES }}><strong>Escrow protected</strong> — money released only after you confirm receipt</p>
+                  <p className="text-xs" style={{ color:ES }}><strong>Safe Pay protected</strong> — money released only after you confirm receipt</p>
                 </div>
                 <div className="flex items-center gap-3 mt-4 p-3 rounded-2xl" style={{ background:"#f0fdf4" }}>
                   <div className="w-9 h-9 rounded-full flex items-center justify-center text-lg flex-shrink-0" style={{ background:G }}>👤</div>
@@ -635,9 +812,36 @@ export default function App() {
                   <div className="ml-auto text-xs font-semibold" style={{ color:AM }}>⭐ 4.9</div>
                 </div>
                 {item.status==="available"&&(
-                  <div className="mt-5 flex gap-3">
-                    <button onClick={()=>handleBuy(item)} className="flex-1 py-4 rounded-2xl text-white font-bold text-base shadow" style={{ background:G }}>🔒 Buy (escrow)</button>
-                    <a href={`https://wa.me/${item.phone?.replace(/\D/g,"")}`} className="py-4 px-5 rounded-2xl font-bold text-base border-2 flex items-center justify-center" style={{ borderColor:G,color:GD }}>💬</a>
+                  <div className="mt-5 space-y-2">
+                    <div className="flex gap-3">
+                      <button onClick={()=>handleBuy(item)} className="flex-1 py-4 rounded-2xl text-white font-bold text-base shadow" style={{ background:G }}>🔒 Buy</button>
+                      <a href={`https://wa.me/${(item.phone||"").replace(/[^0-9]/g,"")}`} className="py-4 px-5 rounded-2xl font-bold text-base border-2 flex items-center justify-center" style={{ borderColor:G,color:GD }}>💬</a>
+                    </div>
+                    {!showOffer ? (
+                      <button onClick={()=>setShowOffer(true)} className="w-full py-3 rounded-2xl text-sm font-semibold" style={{ background:"#f9fafb",color:"#374151",border:"1px solid #e5e7eb" }}>
+                        💬 Make an offer
+                      </button>
+                    ) : (
+                      <div className="rounded-2xl p-4" style={{ background:"#f9fafb",border:"1px solid #e5e7eb" }}>
+                        <p className="text-xs font-bold text-gray-700 mb-2">Your offer (AED)</p>
+                        <div className="flex gap-2">
+                          <input value={offerAmount} onChange={e=>setOfferAmount(e.target.value)} type="number"
+                            placeholder={`Max AED ${item.price}`}
+                            className="flex-1 px-3 py-2 rounded-xl text-sm outline-none" style={{ border:"1px solid #e5e7eb" }} />
+                          <button onClick={()=>{
+                            if(offerAmount && parseInt(offerAmount) < item.price) {
+                              window.open(`https://wa.me/${(item.phone||"").replace(/[^0-9]/g,"")}?text=Hi ${item.seller}! I'm interested in your ${item.title} listed at AED ${item.price} on Cedre Villas Marketplace. Would you accept AED ${offerAmount}?`,"_blank");
+                              setShowOffer(false); setOfferAmount("");
+                            }
+                          }} className="px-4 py-2 rounded-xl text-white text-sm font-bold" style={{ background:G }}>Send</button>
+                        </div>
+                        <p className="text-xs text-gray-400 mt-1">Opens WhatsApp chat with seller</p>
+                      </div>
+                    )}
+                    <button onClick={()=>setSavedItems(prev=>prev.find(s=>s.id===item.id)?prev.filter(s=>s.id!==item.id):[...prev,item])}
+                      className="w-full py-3 rounded-2xl text-sm font-semibold" style={{ background:"#f9fafb",color:"#374151",border:"1px solid #e5e7eb" }}>
+                      {savedItems.find(s=>s.id===item.id) ? "❤️ Saved" : "🤍 Save for later"}
+                    </button>
                   </div>
                 )}
                 {item.status==="reserved"&&(
