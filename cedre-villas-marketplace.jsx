@@ -591,11 +591,7 @@ export default function App() {
                             <p className="text-xs text-amber-700 mt-0.5">Set up how you receive money when your item sells — takes 1 minute.</p>
                             <button onClick={()=>{
                               setMsgs(prev=>[...prev,
-                                { from:"bot", text:"✅ Item listed!
-
-Now let's set up your payment — *one-time setup* so you get paid instantly when your item sells.
-
-How would you like to receive payment?", type:"options", opts:["💚 AANI (Instant)","🏦 Bank Transfer (IBAN)"] }
+                                { from:"bot", text:"✅ Item listed!\n\nNow let's set up your payment — *one-time setup* so you get paid instantly when your item sells.\n\nHow would you like to receive payment?", type:"options", opts:["💚 AANI (Instant)","🏦 Bank Transfer (IBAN)"] }
                               ]);
                               setBStep(8);
                             }} className="w-full mt-2 py-2 rounded-xl text-xs font-bold text-white" style={{ background:AM }}>💰 Set up payment now</button>
@@ -609,21 +605,12 @@ How would you like to receive payment?", type:"options", opts:["💚 AANI (Insta
                               if(opt.includes("AANI")) {
                                 setMsgs(prev=>[...prev,
                                   { from:"user", text:opt },
-                                  { from:"bot", text:"💚 *AANI — great choice!*
-
-Do you already have AANI set up on your UAE banking app?", type:"aani_check" }
+                                  { from:"bot", text:"💚 *AANI — great choice!*\n\nDo you already have AANI set up on your UAE banking app?", type:"aani_check" }
                                 ]);
                               } else {
                                 setMsgs(prev=>[...prev,
                                   { from:"user", text:opt },
-                                  { from:"bot", text:"🏦 *Bank Transfer selected*
-
-Please share your IBAN number.
-
-📋 Format: AE + 21 digits
-Example: AE070331234567890123456
-
-💡 Find it in your banking app → Account Details → IBAN", type:"iban_flow" }
+                                  { from:"bot", text:"🏦 *Bank Transfer selected*\n\nPlease share your IBAN number.\n\n📋 Format: AE + 21 digits\nExample: AE070331234567890123456\n\n💡 Find it in your banking app → Account Details → IBAN", type:"iban_flow" }
                                 ]);
                               }
                             }} className="w-full py-2.5 px-3 rounded-xl text-sm font-semibold text-left" style={{ background:"#f0fdf4",color:GD,border:`1px solid ${G}` }}>{opt}</button>
@@ -634,17 +621,7 @@ Example: AE070331234567890123456
                         <div className="mt-3 space-y-2">
                           <p className="text-xs font-bold mb-2" style={{ color:G }}>Do you have AANI set up?</p>
                           <button onClick={()=>botNext("✅ Yes, I have AANI", bStep+1, bData)} className="w-full py-2.5 rounded-xl text-sm font-semibold text-left px-3" style={{ background:"#f0fdf4",color:GD,border:`1px solid ${G}` }}>✅ Yes — enter my AANI number</button>
-                          <button onClick={()=>{ setBotMessages && setMsgs(prev=>[...prev,{ from:"bot",text:"📱 *Setting up AANI takes 2 minutes:*
-
-1️⃣ Open your UAE banking app
-2️⃣ Look for 'AANI' or 'Instant Payment'
-3️⃣ Register your mobile number
-4️⃣ Done — receive money instantly
-
-🏦 *Supported banks:*
-Emirates NBD, ADCB, FAB, Mashreq, DIB, RAK Bank and all major UAE banks
-
-Once registered, reply with your mobile number to save it.",type:"aani_register" }]); }} className="w-full py-2.5 rounded-xl text-sm font-semibold text-left px-3" style={{ background:"#f9fafb",color:"#374151",border:"1px solid #e5e7eb" }}>❓ No — help me set it up</button>
+                          <button onClick={()=>{ setMsgs(prev=>[...prev,{ from:"bot",text:"📱 *Setting up AANI takes 2 minutes:*\n\n1️⃣ Open your UAE banking app\n2️⃣ Look for 'AANI' or 'Instant Payment'\n3️⃣ Register your mobile number\n4️⃣ Done — receive money instantly\n\n🏦 *Supported banks:*\nEmirates NBD, ADCB, FAB, Mashreq, DIB, RAK Bank and all major UAE banks\n\nOnce registered, reply with your mobile number to save it.",type:"aani_register" }]); }} className="w-full py-2.5 rounded-xl text-sm font-semibold text-left px-3" style={{ background:"#f9fafb",color:"#374151",border:"1px solid #e5e7eb" }}>❓ No — help me set it up</button>
                         </div>
                       )}
                       {msg.type==="aani_register"&&i===msgs.length-1&&(
@@ -662,11 +639,7 @@ Once registered, reply with your mobile number to save it.",type:"aani_register"
                           <p className="text-xs text-gray-400 text-center">Type your AANI number above</p>
                           <button onClick={()=>setMsgs(prev=>[...prev,
                             { from:"user", text:"🏦 IBAN noted" },
-                            { from:"bot", text:"✅ *All set!*
-
-Buyer pays → we hold it safely → you hand over → buyer confirms → you get paid. 🏦
-
-We'll notify you on WhatsApp at every step.", type:"payment_saved" }
+                            { from:"bot", text:"✅ *All set!*\n\nBuyer pays → we hold it safely → you hand over → buyer confirms → you get paid. 🏦\n\nWe'll notify you on WhatsApp at every step.", type:"payment_saved" }
                           ])} className="w-full py-2.5 rounded-xl text-sm font-semibold text-white" style={{ background:GD }}>✓ IBAN entered in chat above</button>
                         </div>
                       )}
